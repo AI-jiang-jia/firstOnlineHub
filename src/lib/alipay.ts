@@ -16,6 +16,23 @@ type AlipayPrecreateResponse = {
   sub_msg?: string;
 };
 
+type AlipayTradeQueryResponse = {
+  code?: string;
+  msg?: string;
+  subCode?: string;
+  sub_code?: string;
+  subMsg?: string;
+  sub_msg?: string;
+  outTradeNo?: string;
+  out_trade_no?: string;
+  tradeNo?: string;
+  trade_no?: string;
+  tradeStatus?: string;
+  trade_status?: string;
+  totalAmount?: string;
+  total_amount?: string;
+};
+
 export type AlipayNotifyPayload = Record<string, string>;
 
 function envString(name: string) {
@@ -107,6 +124,23 @@ export async function createAlipayPrecreateOrder({
       width: 260
     }),
     alipayTradeNo
+  };
+}
+
+export async function queryAlipayOrder(orderNo: string) {
+  const result = (await getAlipayClient().exec("alipay.trade.query", {
+    bizContent: {
+      out_trade_no: orderNo
+    }
+  })) as AlipayTradeQueryResponse;
+
+  return {
+    code: result.code,
+    message: result.subMsg || result.sub_msg || result.msg || "",
+    outTradeNo: result.outTradeNo || result.out_trade_no || orderNo,
+    tradeNo: result.tradeNo || result.trade_no || null,
+    tradeStatus: result.tradeStatus || result.trade_status || "",
+    totalAmount: result.totalAmount || result.total_amount || ""
   };
 }
 

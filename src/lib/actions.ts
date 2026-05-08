@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createSupabaseAdminClient, createSupabaseServerClient } from "@/lib/supabase/server";
 import { getCurrentUserRole } from "@/lib/auth";
-import { createAlipayPrecreateOrder } from "@/lib/alipay";
+import { amountMatches, createAlipayPrecreateOrder, queryAlipayOrder } from "@/lib/alipay";
 import { AI_PRODUCTS_BASE } from "@/lib/data";
 import { saveRegistrationForm } from "@/lib/postgres";
 
@@ -44,6 +44,72 @@ function createOrderNo() {
 
 function findAiProduct(slug: string) {
   return AI_PRODUCTS_BASE.find((product) => product.slug === slug);
+}
+
+const PAID_ALIPAY_TRADE_STATUSES = new Set(["TRADE_SUCCESS", "TRADE_FINISHED"]);
+
+async function syncPaidStatusFromAlipay(orderNo: string) {
+  const admin = createSupabaseAdminClient();
+  if (!admin) {
+    return { status: "error" as const, message: "请先配置 SUPABASE_SERVICE_ROLE_KEY。" };
+  }
+
+  const { data: order, error } = await admin
+    .from("payment_orders")
+    .select("order_no, amount, status")
+    .eq("order_no", orderNo)
+    .maybeSingle();
+
+  if (error) {
+    return { status: "error" as const, message: error.message };
+  }
+
+  if (!order) {
+    return { status: "not_found" as const, message: "没有找到该订单。" };
+  }
+
+  if (order.status !== "pending") {
+    return { status: order.status as PaymentOrderStatusState["status"] };
+  }
+
+  try {
+    const alipayOrder = await queryAlipayOrder(orderNo);
+    if (alipayOrder.code !== "10000") {
+      return { status: "pending" as const, message: "等待支付宝支付确认。" };
+    }
+
+    if (
+      PAID_ALIPAY_TRADE_STATUSES.has(alipayOrder.tradeStatus) &&
+      amountMatches(Number(order.amount), alipayOrder.totalAmount)
+    ) {
+      const { error: updateError } = await admin
+        .from("payment_orders")
+        .update({
+          status: "paid",
+          paid_at: new Date().toISOString(),
+          alipay_trade_no: alipayOrder.tradeNo,
+          alipay_notify_payload: {
+            source: "alipay.trade.query",
+            trade_status: alipayOrder.tradeStatus,
+            total_amount: alipayOrder.totalAmount,
+            out_trade_no: alipayOrder.outTradeNo,
+            trade_no: alipayOrder.tradeNo
+          }
+        })
+        .eq("order_no", orderNo)
+        .eq("status", "pending");
+
+      if (updateError) {
+        return { status: "error" as const, message: updateError.message };
+      }
+
+      return { status: "paid" as const };
+    }
+
+    return { status: "pending" as const, message: "等待支付宝支付确认。" };
+  } catch {
+    return { status: "pending" as const, message: "等待支付宝支付确认。" };
+  }
 }
 
 export async function createPaymentOrder(
@@ -147,7 +213,16 @@ export async function checkPaymentOrderStatus(orderNo: string): Promise<PaymentO
     return { status: "cancelled", message: "该订单已取消，请重新生成付款订单。" };
   }
 
-  return { status: "pending", message: "等待支付宝支付确认。" };
+  const syncedStatus = await syncPaidStatusFromAlipay(normalizedOrderNo);
+  if (syncedStatus.status === "paid") {
+    return { status: "paid", message: "支付宝已确认收款，可以领取卡密。" };
+  }
+
+  if (syncedStatus.status === "error") {
+    return { status: "error", message: syncedStatus.message };
+  }
+
+  return { status: "pending", message: syncedStatus.message || "等待支付宝支付确认。" };
 }
 
 export async function claimPaidOrderCard(
@@ -163,6 +238,8 @@ export async function claimPaidOrderCard(
   if (!orderNo) {
     return { status: "error", message: "请输入订单号。" };
   }
+
+  await syncPaidStatusFromAlipay(orderNo);
 
   const { data, error } = await admin.rpc("fulfill_paid_membership_order", {
     p_order_no: orderNo
