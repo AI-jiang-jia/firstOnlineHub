@@ -73,7 +73,12 @@ export default async function HomePage() {
             <p>本站商品为虚拟会员充值卡密，下单前请确认自己能按教程完成操作。</p>
             <p>请使用支付宝付款并正确填写订单号，订单未确认支付成功前不会发放卡密。</p>
             <p>卡密一经核验发放即视为发货完成，不支持退款、退换或额外售后服务，请谨慎购买。</p>
-            <p>售后/批发 QQ：623225185，推荐收藏本站：实惠AI：shihuiai.cn。</p>
+            <p>
+              售后/批发 QQ：3273203513，推荐收藏本站：
+              <Link href="https://ai-jiang.netlify.app" className="font-medium text-brand">
+                小蒋AI：https://ai-jiang.netlify.app
+              </Link>
+            </p>
           </div>
         </div>
       </section>

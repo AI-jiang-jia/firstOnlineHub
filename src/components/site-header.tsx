@@ -8,7 +8,7 @@ export async function SiteHeader() {
           <span className="flex h-9 w-9 items-center justify-center rounded bg-brand text-lg font-bold text-white">
             AI
           </span>
-          <span>织选 AI 商城</span>
+          <span>小蒋AI商城</span>
         </Link>
         <nav className="hidden items-center gap-8 text-sm text-muted md:flex">
           <Link href="/products" className="hover:text-ink">全部商品</Link>

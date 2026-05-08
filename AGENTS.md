@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-This repository is a Next.js full-stack AI membership card mall named **织选 AI 商城**. It no longer sells clothing in the active customer flow. The storefront currently sells AI membership products with card-code delivery:
+This repository is a Next.js full-stack AI membership card mall named **小蒋AI商城**. It no longer sells clothing in the active customer flow. The storefront currently sells AI membership products with card-code delivery:
 
 - GeminiPro 12个月会员
 - ChatGPT Plus月会员
@@ -174,7 +174,9 @@ These are not part of the current customer-facing flow. Do not expand or rely on
 ## Frontend Guidelines
 
 - Keep the UI simple, clean, and store-like.
+- Use **小蒋AI商城** as the public site/store name and browser title unless the user requests another rebrand.
 - The homepage should show the announcement area and active product cards, not a marketing-only landing page.
+- The homepage announcement should tell customers these are virtual membership recharge card codes, to confirm they can follow the tutorial before ordering, to pay with Alipay and use the correct order number, that unpaid orders will not receive card codes, that issued card codes count as fulfilled and are non-refundable/non-exchangeable/no extra after-sales, and that after-sales/wholesale QQ is `3273203513` with the recommended bookmark `小蒋AI：https://ai-jiang.netlify.app`.
 - Product cards should show product image, name, description, price, inventory, sold count, and an obvious purchase button.
 - Product detail pages should show the product, recharge link, Alipay payment panel, and tutorial images.
 - Use existing Tailwind conventions and local components before adding new abstractions.

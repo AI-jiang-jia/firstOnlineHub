@@ -6,8 +6,8 @@ import { SiteHeader } from "@/components/site-header";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "织选 AI 商城",
-  description: "GeminiPro 会员自助发卡商城"
+  title: "小蒋AI商城",
+  description: "小蒋AI会员充值卡密自助发卡商城"
 };
 
 export default function RootLayout({
