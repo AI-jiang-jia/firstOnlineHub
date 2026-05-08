@@ -72,7 +72,7 @@ Rules:
 - `src/components/payment-panel.tsx`: Client payment/order/card-claim panel.
 - `src/components/site-header.tsx`: Simple storefront header.
 - `src/lib/actions.ts`: Server Actions for payment order creation and paid-order card fulfillment.
-- `src/lib/alipay.ts`: Server-only Alipay SDK client, precreate order helper, QR generation, amount matching, and notify signature verification.
+- `src/lib/alipay.ts`: Server-only Alipay SDK client, precreate order helper, trade query helper, QR generation, amount matching, and notify signature verification.
 - `src/lib/data.ts`: AI product definitions and inventory read helpers.
 - `src/lib/supabase`: Supabase browser/server/admin clients.
 - `public/payments/alipay-qr.jpg`: Real Alipay payment QR code.
@@ -143,14 +143,15 @@ The active payment flow uses official Alipay face-to-face payment precreate orde
 
 Current secure flow:
 
-1. Customer clicks "生成付款订单".
+1. Customer clicks the product payment button, such as "支付 ¥39.90".
 2. Server creates a `payment_orders` row with status `pending`.
 3. Server calls Alipay `alipay.trade.precreate` with the local order number as `out_trade_no`.
-4. The customer scans the dynamic Alipay QR code returned by Alipay.
+4. The frontend shows the dynamic Alipay QR code and displays the order number only for reference/copying. Customers should not need to manually type the order number to claim a card.
 5. Alipay posts to `/api/alipay/notify`.
 6. The callback verifies the Alipay signature, app id, local order number, and amount before setting `payment_orders.status = 'paid'`.
-7. Customer clicks "核验支付并领取卡密".
-8. `fulfill_paid_membership_order(order_no)` checks the order status and releases one matching available card.
+7. The frontend may also poll/check order status. If the local order is still `pending`, server-side logic may call Alipay `alipay.trade.query`; only `TRADE_SUCCESS` or `TRADE_FINISHED` with a matching amount may mark the order as `paid`.
+8. Customer clicks "获取卡密". If no order has been generated or payment is not confirmed, show a clear "please purchase/pay first" style message and do not release a card.
+9. `fulfill_paid_membership_order(order_no)` checks the paid order status and releases one matching available card. The frontend displays the card code with a copy button.
 
 Rules:
 
@@ -158,6 +159,7 @@ Rules:
 - Do not reintroduce "I already paid" self-claim behavior that bypasses paid-order confirmation.
 - Do not trust frontend redirects or client-supplied payment status.
 - The Alipay callback must verify the signature with `checkNotifySignV2`, validate `app_id`, match `out_trade_no` to the local order, and compare the paid amount before marking an order as `paid`.
+- Alipay active trade query is a server-side fallback for local testing and callback delays, not a frontend trust signal.
 - The Alipay callback must not deliver card codes directly. Card delivery remains inside `fulfill_paid_membership_order(order_no)`.
 
 ## Legacy Code Notes
@@ -179,6 +181,8 @@ These are not part of the current customer-facing flow. Do not expand or rely on
 - The homepage announcement should tell customers these are virtual membership recharge card codes, to confirm they can follow the tutorial before ordering, to pay with Alipay and use the correct order number, that unpaid orders will not receive card codes, that issued card codes count as fulfilled and are non-refundable/non-exchangeable/no extra after-sales, and that after-sales/wholesale QQ is `3273203513` with the recommended bookmark `小蒋AI：https://ai-jiang.netlify.app`.
 - Product cards should show product image, name, description, price, inventory, sold count, and an obvious purchase button.
 - Product detail pages should show the product, recharge link, Alipay payment panel, and tutorial images.
+- The payment panel should feel like a purchase flow: the primary action is `支付 ¥PRICE`, it shows the Alipay QR code after order creation, stores the current order number internally, and the claim action is `获取卡密`.
+- Do not expose a manual order-number input in the normal purchase panel unless adding a separate recovery tool. Customers should not have to type an order number after clicking pay.
 - Use existing Tailwind conventions and local components before adding new abstractions.
 - Use `lucide-react` for icons.
 - Avoid decorative clutter and avoid text overflow on mobile.
