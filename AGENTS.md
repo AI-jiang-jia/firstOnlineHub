@@ -2,15 +2,20 @@
 
 ## Project Overview
 
-This repository is a Next.js full-stack clothing mall named **织选商城**. It includes a storefront, Supabase Auth login/register, cart, checkout with mock payment, orders, and admin pages for products, orders, and categories.
+This repository is a Next.js full-stack AI membership card mall named **织选 AI 商城**. It no longer sells clothing in the active customer flow. The storefront currently sells AI membership products with card-code delivery:
+
+- GeminiPro 12个月会员
+- ChatGPT Plus月会员
+
+Customers do not register or log in. They browse products, create a payment order, scan an Alipay QR code, and can receive a card code only after the order is confirmed as paid in Supabase.
 
 Core stack:
 
 - Next.js App Router with TypeScript
 - React 19
 - Tailwind CSS
-- Supabase Auth and Postgres
-- `pg` PostgreSQL Pool for server-side registration form writes
+- Supabase Postgres
+- Supabase service role for server-side order/card-code operations
 - Netlify deployment target
 
 ## Important Commands
@@ -40,65 +45,145 @@ NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 DATABASE_URL=
+NEXT_PUBLIC_SITE_URL=
+ALIPAY_APP_ID=
+ALIPAY_PRIVATE_KEY=
+ALIPAY_PUBLIC_KEY=
+ALIPAY_GATEWAY_URL=
 ```
 
 Rules:
 
 - Never commit `.env.local`, `.env`, Netlify env files, service role keys, database URLs, or access tokens.
 - Keep `.env.example` as a blank template only.
-- `DATABASE_URL` should point to the Supabase **Session Pooler** when possible.
 - `SUPABASE_SERVICE_ROLE_KEY` must only be used server-side.
-- Public browser code must use only public Supabase keys.
+- `ALIPAY_APP_ID`, `ALIPAY_PRIVATE_KEY`, and `ALIPAY_PUBLIC_KEY` are provided by the merchant later through `.env.local` and Netlify environment variables.
+- `ALIPAY_PRIVATE_KEY` and `ALIPAY_PUBLIC_KEY` must only be used server-side.
+- `ALIPAY_GATEWAY_URL` should be `https://openapi.alipay.com/gateway.do` for production unless explicitly testing a sandbox gateway.
+- Public browser code must never read card codes directly.
+- Public browser code must not decide whether a customer can receive a card code.
 
 ## Source Layout
 
 - `src/app`: App Router pages and route layouts.
-- `src/components`: Shared UI components.
-- `src/lib/actions.ts`: Server Actions for auth, cart, orders, mock payment, and admin writes.
-- `src/lib/postgres.ts`: Server-side PostgreSQL Pool and registration table writes.
+- `src/app/page.tsx`: Homepage with announcement area and active product cards.
+- `src/app/products`: Product list and product detail pages.
+- `src/components/gemini-product-card.tsx`: Reusable AI product card component.
+- `src/components/payment-panel.tsx`: Client payment/order/card-claim panel.
+- `src/components/site-header.tsx`: Simple storefront header.
+- `src/lib/actions.ts`: Server Actions for payment order creation and paid-order card fulfillment.
+- `src/lib/alipay.ts`: Server-only Alipay SDK client, precreate order helper, QR generation, amount matching, and notify signature verification.
+- `src/lib/data.ts`: AI product definitions and inventory read helpers.
 - `src/lib/supabase`: Supabase browser/server/admin clients.
-- `src/lib/data.ts`: Product/category read helpers with demo fallback data.
-- `src/lib/mock-data.ts`: Local demo fallback products/categories.
-- `supabase/migrations`: SQL schema and registration table migrations.
+- `public/payments/alipay-qr.jpg`: Real Alipay payment QR code.
+- `public/products`: Product icon assets.
+- `public/tutorials`: Product recharge tutorial images.
+- `supabase/migrations`: SQL schema migrations.
+
+## Current Product Model
+
+Active products are defined in `src/lib/data.ts` in `AI_PRODUCTS_BASE`.
+
+Each product has:
+
+- `slug`: stable product identifier used by routes and card inventory.
+- `name`: display name.
+- `price`: display and order amount.
+- `image_url`: local product image.
+- `recharge_url`: external recharge site.
+- `tutorial_images`: local tutorial images.
+
+Current product slugs:
+
+- `gemini-pro-12-months`
+- `chatgpt-plus-monthly`
+
+When adding a new product:
+
+1. Add the product definition in `AI_PRODUCTS_BASE`.
+2. Add product image/tutorial assets under `public/`.
+3. Insert card codes into `public.gemini_cards` with the matching `product_slug`.
+4. Run `npm run lint` and `npm run build`.
 
 ## Database Notes
 
-Public tables currently used:
+Public tables currently used by the active AI mall flow:
 
-- `profiles`: user profile and role data.
-- `registrations`: registration form submissions. Registration form data is saved here through backend PostgreSQL Pool writes.
-- `categories`: product categories.
-- `products`: clothing products.
-- `cart_items`: user cart items.
-- `orders`: order headers.
-- `order_items`: order line items and product snapshots.
+- `gemini_cards`: Card-code inventory for all AI products. Despite the table name, it now stores cards for multiple products using `product_slug`.
+- `payment_orders`: Payment orders created before a customer scans Alipay.
 
-Database change rules:
+Important card/order fields:
 
-- Prefer SQL migrations under `supabase/migrations`.
-- If Supabase MCP is available, use it for schema inspection and applying migrations.
-- Be careful with Chinese text on Windows shells. If writing seed data through scripts, ensure UTF-8 or Unicode-safe string handling so Chinese text does not become `????`.
-- Do not store plaintext passwords in application tables. Passwords belong only to Supabase Auth.
+- `gemini_cards.product_slug`: Product inventory namespace.
+- `gemini_cards.code`: The card code to deliver.
+- `gemini_cards.status`: `available` or `sold`.
+- `payment_orders.order_no`: Customer-facing order number.
+- `payment_orders.status`: `pending`, `paid`, `fulfilled`, or `cancelled`.
+- `payment_orders.card_code`: Delivered card after fulfillment.
+- `payment_orders.alipay_trade_no`: Alipay trade number from callback/precreate when available.
+- `payment_orders.alipay_qr_code`: Alipay dynamic QR code content returned by `alipay.trade.precreate`.
+- `payment_orders.alipay_notify_payload`: Last verified Alipay callback payload for audit/debugging.
 
-## Auth And Permissions
+Important database functions:
 
-- Regular registration uses Supabase Auth.
-- Registration form metadata is also saved to `public.registrations`.
-- Admin pages require `profiles.role = 'admin'`.
-- Server-side admin writes may use `SUPABASE_SERVICE_ROLE_KEY`, but only after checking user/admin intent in the server action.
-- RLS should remain enabled on user-facing tables.
+- `claim_membership_card(product_slug)`: Legacy-style card claiming by product. Keep service-role only.
+- `fulfill_paid_membership_order(order_no)`: Main secure fulfillment function. It only releases a card when the order status is `paid`.
+
+Security and concurrency rules:
+
+- RLS must remain enabled on `gemini_cards` and `payment_orders`.
+- Do not add public anon/authenticated read policies to card-code tables.
+- Card delivery must happen in the database function with row locks and `FOR UPDATE SKIP LOCKED`.
+- Never implement card delivery by selecting an available code in frontend code.
+- Never let a client-supplied `product_slug`, price, or status determine fulfillment without server/database validation.
+
+## Payment Flow
+
+The active payment flow uses official Alipay face-to-face payment precreate orders. A normal personal/static Alipay QR code does not provide an automatic payment callback and should not be used for automatic fulfillment.
+
+Current secure flow:
+
+1. Customer clicks "生成付款订单".
+2. Server creates a `payment_orders` row with status `pending`.
+3. Server calls Alipay `alipay.trade.precreate` with the local order number as `out_trade_no`.
+4. The customer scans the dynamic Alipay QR code returned by Alipay.
+5. Alipay posts to `/api/alipay/notify`.
+6. The callback verifies the Alipay signature, app id, local order number, and amount before setting `payment_orders.status = 'paid'`.
+7. Customer clicks "核验支付并领取卡密".
+8. `fulfill_paid_membership_order(order_no)` checks the order status and releases one matching available card.
+
+Rules:
+
+- Pending, cancelled, missing, failed, or unpaid orders must not receive card codes.
+- Do not reintroduce "I already paid" self-claim behavior that bypasses paid-order confirmation.
+- Do not trust frontend redirects or client-supplied payment status.
+- The Alipay callback must verify the signature with `checkNotifySignV2`, validate `app_id`, match `out_trade_no` to the local order, and compare the paid amount before marking an order as `paid`.
+- The Alipay callback must not deliver card codes directly. Card delivery remains inside `fulfill_paid_membership_order(order_no)`.
+
+## Legacy Code Notes
+
+The repository still contains legacy clothing mall structures and tables such as:
+
+- Supabase Auth pages and profile tables
+- categories/products/cart/order tables
+- admin route files
+- registration table and PostgreSQL Pool helper
+
+These are not part of the current customer-facing flow. Do not expand or rely on the old clothing/cart/auth flow unless the user explicitly asks to restore it.
 
 ## Frontend Guidelines
 
-- Keep the UI clean and mall-like, inspired by Xiaomi Mall: white background, restrained colors, clear product cards, and responsive layouts.
-- Do not add marketing-only landing pages unless requested. The first screen should remain a usable shopping experience.
+- Keep the UI simple, clean, and store-like.
+- The homepage should show the announcement area and active product cards, not a marketing-only landing page.
+- Product cards should show product image, name, description, price, inventory, sold count, and an obvious purchase button.
+- Product detail pages should show the product, recharge link, Alipay payment panel, and tutorial images.
 - Use existing Tailwind conventions and local components before adding new abstractions.
 - Use `lucide-react` for icons.
 - Avoid decorative clutter and avoid text overflow on mobile.
 
 ## Deployment
 
-Deployment target is Netlify. The project was moved to Netlify because Vercel registration/deployment was not available for the user.
+Deployment target is Netlify.
 
 Netlify configuration:
 
@@ -113,14 +198,7 @@ Workflow:
 2. Push to GitHub.
 3. Import the GitHub repository in Netlify.
 4. Add all required environment variables in Netlify Site configuration.
-5. Deploy and test `/`, `/products`, `/auth/login`, `/auth/register`, `/cart`, and checkout/order flows.
-
-After deployment, add the generated Netlify domain to Supabase Auth URL settings:
-
-- Supabase Authentication Site URL
-- Supabase Authentication Redirect URLs
-
-Use the generated `*.netlify.app` domain first, then bind a custom domain if needed.
+5. Deploy and test `/`, `/products`, product detail pages, payment order creation, and paid-order card fulfillment.
 
 ## Safety Checklist For Agents
 
@@ -129,4 +207,5 @@ Use the generated `*.netlify.app` domain first, then bind a custom domain if nee
 - Do not run destructive git commands such as `git reset --hard` unless explicitly requested.
 - Do not change production database schema without migration SQL or explicit user direction.
 - After code changes, run `npm run lint` and `npm run build`.
+- If touching payment/card-code logic, verify that unpaid orders cannot receive card codes.
 - If pushing to GitHub, verify remote and branch before pushing.

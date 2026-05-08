@@ -66,3 +66,17 @@ export type OrderItem = {
     image_url: string;
   };
 };
+
+export type AiProduct = {
+  id: string;
+  name: string;
+  slug: string;
+  description: string;
+  price: number;
+  image_url: string;
+  recharge_url: string;
+  tutorial_images: string[];
+  tutorial_title: string;
+  availableCount: number;
+  soldCount: number;
+};

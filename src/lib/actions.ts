@@ -1,13 +1,244 @@
 "use server";
 
+import { randomBytes } from "crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createSupabaseAdminClient, createSupabaseServerClient } from "@/lib/supabase/server";
 import { getCurrentUserRole } from "@/lib/auth";
+import { createAlipayPrecreateOrder } from "@/lib/alipay";
+import { AI_PRODUCTS_BASE } from "@/lib/data";
 import { saveRegistrationForm } from "@/lib/postgres";
 
 function formString(formData: FormData, key: string) {
   return String(formData.get(key) ?? "").trim();
+}
+
+export type ClaimGeminiCardState = {
+  status: "idle" | "success" | "sold_out" | "error";
+  code?: string;
+  message?: string;
+};
+
+export type PaymentPanelState = {
+  status: "idle" | "order_created" | "success" | "not_paid" | "sold_out" | "error";
+  orderNo?: string;
+  qrCodeDataUrl?: string;
+  code?: string;
+  message?: string;
+};
+
+export type PaymentOrderStatusState = {
+  status: "pending" | "paid" | "fulfilled" | "cancelled" | "not_found" | "error";
+  message?: string;
+};
+
+function createOrderNo() {
+  const now = new Date();
+  const date = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0")
+  ].join("");
+  return `ZX${date}${randomBytes(4).toString("hex").toUpperCase()}`;
+}
+
+function findAiProduct(slug: string) {
+  return AI_PRODUCTS_BASE.find((product) => product.slug === slug);
+}
+
+export async function createPaymentOrder(
+  _previousState: PaymentPanelState,
+  formData: FormData
+): Promise<PaymentPanelState> {
+  const admin = createSupabaseAdminClient();
+  if (!admin) {
+    return { status: "error", message: "请先配置 SUPABASE_SERVICE_ROLE_KEY。" };
+  }
+
+  const productSlug = formString(formData, "productSlug");
+  const product = findAiProduct(productSlug);
+  if (!product) {
+    return { status: "error", message: "商品不存在。" };
+  }
+
+  const orderNo = createOrderNo();
+  const { error } = await admin.from("payment_orders").insert({
+    order_no: orderNo,
+    product_slug: product.slug,
+    product_name: product.name,
+    amount: product.price,
+    status: "pending"
+  });
+
+  if (error) {
+    return { status: "error", message: error.message };
+  }
+
+  try {
+    const alipayOrder = await createAlipayPrecreateOrder({
+      orderNo,
+      amount: Number(product.price),
+      subject: product.name
+    });
+
+    const { error: updateError } = await admin
+      .from("payment_orders")
+      .update({
+        alipay_trade_no: alipayOrder.alipayTradeNo,
+        alipay_qr_code: alipayOrder.qrCode
+      })
+      .eq("order_no", orderNo);
+
+    if (updateError) {
+      return { status: "error", orderNo, message: updateError.message };
+    }
+
+    return {
+      status: "order_created",
+      orderNo,
+      qrCodeDataUrl: alipayOrder.qrCodeDataUrl,
+      message: "订单已生成。请使用支付宝扫码付款，支付成功后系统会自动确认。"
+    };
+  } catch (alipayError) {
+    await admin.from("payment_orders").update({ status: "cancelled" }).eq("order_no", orderNo);
+
+    return {
+      status: "error",
+      orderNo,
+      message: alipayError instanceof Error ? alipayError.message : "支付宝预下单失败。"
+    };
+  }
+}
+
+export async function checkPaymentOrderStatus(orderNo: string): Promise<PaymentOrderStatusState> {
+  const admin = createSupabaseAdminClient();
+  if (!admin) {
+    return { status: "error", message: "请先配置 SUPABASE_SERVICE_ROLE_KEY。" };
+  }
+
+  const normalizedOrderNo = orderNo.trim().toUpperCase();
+  if (!normalizedOrderNo) {
+    return { status: "error", message: "请输入订单号。" };
+  }
+
+  const { data, error } = await admin
+    .from("payment_orders")
+    .select("status")
+    .eq("order_no", normalizedOrderNo)
+    .maybeSingle();
+
+  if (error) {
+    return { status: "error", message: error.message };
+  }
+
+  if (!data) {
+    return { status: "not_found", message: "没有找到该订单。" };
+  }
+
+  if (data.status === "paid") {
+    return { status: "paid", message: "支付宝已确认收款，可以领取卡密。" };
+  }
+
+  if (data.status === "fulfilled") {
+    return { status: "fulfilled", message: "该订单已发卡，可再次核验查看卡密。" };
+  }
+
+  if (data.status === "cancelled") {
+    return { status: "cancelled", message: "该订单已取消，请重新生成付款订单。" };
+  }
+
+  return { status: "pending", message: "等待支付宝支付确认。" };
+}
+
+export async function claimPaidOrderCard(
+  _previousState: PaymentPanelState,
+  formData: FormData
+): Promise<PaymentPanelState> {
+  const admin = createSupabaseAdminClient();
+  if (!admin) {
+    return { status: "error", message: "请先配置 SUPABASE_SERVICE_ROLE_KEY。" };
+  }
+
+  const orderNo = formString(formData, "orderNo").toUpperCase();
+  if (!orderNo) {
+    return { status: "error", message: "请输入订单号。" };
+  }
+
+  const { data, error } = await admin.rpc("fulfill_paid_membership_order", {
+    p_order_no: orderNo
+  });
+
+  if (error) {
+    return { status: "error", orderNo, message: error.message };
+  }
+
+  const result = Array.isArray(data) ? data[0] : null;
+  if (result?.result === "success" || result?.result === "already_fulfilled") {
+    revalidatePath("/");
+    revalidatePath("/products");
+    return {
+      status: "success",
+      orderNo,
+      code: result.code,
+      message: result.result === "already_fulfilled" ? "该订单已发卡，卡密如下。" : "支付已确认，卡密领取成功。"
+    };
+  }
+
+  if (result?.result === "not_paid") {
+    return {
+      status: "not_paid",
+      orderNo,
+      message: "订单暂未确认支付成功，不能领取卡密。请完成支付宝付款后稍候再试。"
+    };
+  }
+
+  if (result?.result === "sold_out") {
+    return { status: "sold_out", orderNo, message: "卡密暂时售罄，请联系商家处理。" };
+  }
+
+  return { status: "error", orderNo, message: "没有找到该订单，请检查订单号。" };
+}
+
+export async function claimGeminiCard(
+  _previousState: ClaimGeminiCardState,
+  formData: FormData
+): Promise<ClaimGeminiCardState> {
+  const admin = createSupabaseAdminClient();
+  if (!admin) {
+    return {
+      status: "error",
+      message: "请先配置 SUPABASE_SERVICE_ROLE_KEY 后再领取卡密。"
+    };
+  }
+
+  const productSlug = formString(formData, "productSlug") || "gemini-pro-12-months";
+  const { data, error } = await admin.rpc("claim_membership_card", {
+    p_product_slug: productSlug
+  });
+  if (error) {
+    return {
+      status: "error",
+      message: error.message
+    };
+  }
+
+  const claimed = Array.isArray(data) ? data[0] : null;
+  if (!claimed?.code) {
+    return {
+      status: "sold_out",
+      message: "卡密暂时售罄，请联系商家补货。"
+    };
+  }
+
+  revalidatePath("/");
+  revalidatePath("/products");
+  revalidatePath(`/products/${productSlug}`);
+
+  return {
+    status: "success",
+    code: claimed.code,
+    message: "领取成功，请妥善保存卡密。"
+  };
 }
 
 export async function signUp(formData: FormData) {

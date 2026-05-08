@@ -1,0 +1,19 @@
+<svg width="800" height="800" viewBox="0 0 800 800" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="800" height="800" rx="176" fill="#F7F9FF"/>
+  <rect x="80" y="80" width="640" height="640" rx="144" fill="url(#bg)"/>
+  <path d="M400 120C421.5 263.6 536.4 378.5 680 400C536.4 421.5 421.5 536.4 400 680C378.5 536.4 263.6 421.5 120 400C263.6 378.5 378.5 263.6 400 120Z" fill="url(#star)"/>
+  <path d="M400 222C413.7 313.6 486.4 386.3 578 400C486.4 413.7 413.7 486.4 400 578C386.3 486.4 313.6 413.7 222 400C313.6 386.3 386.3 313.6 400 222Z" fill="white" fill-opacity=".72"/>
+  <defs>
+    <linearGradient id="bg" x1="127" y1="103" x2="668" y2="712" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#EAF0FF"/>
+      <stop offset=".45" stop-color="#F9F7FF"/>
+      <stop offset="1" stop-color="#ECFFF8"/>
+    </linearGradient>
+    <linearGradient id="star" x1="207" y1="190" x2="603" y2="615" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#4285F4"/>
+      <stop offset=".38" stop-color="#A142F4"/>
+      <stop offset=".68" stop-color="#34A853"/>
+      <stop offset="1" stop-color="#FBBC04"/>
+    </linearGradient>
+  </defs>
+</svg>
