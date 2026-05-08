@@ -236,7 +236,7 @@ export async function claimPaidOrderCard(
 
   const orderNo = formString(formData, "orderNo").toUpperCase();
   if (!orderNo) {
-    return { status: "error", message: "请输入订单号。" };
+    return { status: "not_paid", message: "请先购买并完成支付后再领取卡密。" };
   }
 
   await syncPaidStatusFromAlipay(orderNo);

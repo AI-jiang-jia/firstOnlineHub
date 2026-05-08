@@ -61,7 +61,7 @@ export function PaymentPanel({ productSlug, price }: { productSlug: string; pric
         <div>
           <h2 className="text-lg font-semibold">支付宝付款</h2>
           <p className="mt-1 text-sm leading-6 text-muted">
-            先生成订单，再用支付宝扫码支付。支付成功后系统会自动确认，可点击领取卡密。
+            点击支付后会生成支付宝二维码。支付成功后点击获取卡密，可复制卡密进行充值。
           </p>
         </div>
       </div>
@@ -72,7 +72,7 @@ export function PaymentPanel({ productSlug, price }: { productSlug: string; pric
           disabled={isCreating}
           className="flex h-12 w-full items-center justify-center rounded bg-brand font-medium text-white disabled:bg-zinc-300"
         >
-          {isCreating ? "正在生成订单..." : `生成 ¥${price.toFixed(2)} 付款订单`}
+          {isCreating ? "正在生成二维码..." : `支付 ¥${price.toFixed(2)}`}
         </button>
       </form>
 
@@ -94,7 +94,10 @@ export function PaymentPanel({ productSlug, price }: { productSlug: string; pric
             </div>
           ) : null}
           <div className="mt-3 flex flex-col gap-3 rounded bg-white p-3 text-ink sm:flex-row sm:items-center sm:justify-between">
-            <code className="break-all text-base font-semibold">{orderState.orderNo}</code>
+            <div>
+              <p className="text-xs text-muted">订单号</p>
+              <code className="break-all text-base font-semibold">{orderState.orderNo}</code>
+            </div>
             <button
               type="button"
               onClick={() => navigator.clipboard?.writeText(orderState.orderNo ?? "")}
@@ -123,23 +126,14 @@ export function PaymentPanel({ productSlug, price }: { productSlug: string; pric
         </div>
       ) : null}
 
-      <form action={claimAction} className="mt-5 space-y-3">
-        <label className="block">
-          <span className="mb-2 block text-sm font-medium">订单号</span>
-          <input
-            key={orderNo}
-            name="orderNo"
-            defaultValue={orderNo}
-            placeholder="请输入付款订单号"
-            className="h-11 w-full rounded border border-line px-3 outline-none focus:border-brand"
-          />
-        </label>
+      <form action={claimAction} className="mt-5">
+        <input key={orderNo} type="hidden" name="orderNo" value={orderNo} />
         <button
           disabled={isClaiming}
           className="flex h-12 w-full items-center justify-center gap-2 rounded bg-ink font-medium text-white disabled:bg-zinc-300"
         >
           <KeyRound size={18} />
-          {isClaiming ? "正在核验订单..." : "核验支付并领取卡密"}
+          {isClaiming ? "正在核验订单..." : "获取卡密"}
         </button>
       </form>
 
